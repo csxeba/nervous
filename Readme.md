@@ -10,7 +10,7 @@ StressedNet is described in the following four papers (in chronological and logi
 
 [Transgenerational EvoNet (2017)](http://openaccess.thecvf.com/content_ICCV_2017_workshops/papers/w18/Shafiee_Learning_Efficient_Deep_ICCV_2017_paper.pdf)
 
-[StressedNet (2018](https://arxiv.org/pdf/1801.05387.pdf)
+[StressedNet (2018)](https://arxiv.org/pdf/1801.05387.pdf)
 
 The library is currently WIP.
 
