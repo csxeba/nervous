@@ -1,28 +1,38 @@
+import os
 import copy
+from collections import namedtuple, OrderedDict
 
 import numpy as np
-from collections.__init__ import namedtuple, OrderedDict
 from keras import Model
 from keras.models import model_from_config
-from nervous.probability_model import SynapticProbabilityModel, _layer_unit_name
+
+from .probability_model import SynapticProbabilityModel, _layer_unit_name
+from .logger import NervousLogger
 
 
 class StressedNet:
 
     Config = namedtuple("Config", ["synaptic_normalizing_term", "group_normalizing_term",
                                    "synaptic_environmental_constraint",
-                                   "group_environmental_constraint"])
+                                   "group_environmental_constraint",
+                                   "save_folder"])
+    Offspring = namedtuple("Offspring", ["file_path", "history"])
 
     def __init__(self, model: Model, stressed_net_config: Config):
+        if not model._built:
+            raise RuntimeError("Please build model before wrapping with StressedNet")
         self.ancestor_config_template = copy.copy(model.get_config())
         self._model_inputs = model.inputs
-        self._all_layer_configs = OrderedDict({layer_cfg["name"]: copy.copy(layer_cfg) for layer_cfg
-                                               in self.ancestor_config_template["layers"]})
+        self._model_losses = model.losses
+        self._all_layer_configs = OrderedDict({layer_cfg["config"]["name"]: copy.copy(layer_cfg) for layer_cfg
+                                               in self.ancestor_config_template})
         self._layers_of_interest = [name for name, layer in self._all_layer_configs.items() if
                                     layer["class_name"] in ("Dense", "Conv2D")]
-        self.probability_model = SynapticProbabilityModel(model.layers, *stressed_net_config)
+        self.probability_model = SynapticProbabilityModel(model.layers, *stressed_net_config[:4])
+        self.save_folder = stressed_net_config.save_folder
         self._generation_counter = 1
         self._offspring_counter = 1
+        self._logger = NervousLogger()
 
     def sample_new_model(self):
         pruning_masks = self.probability_model.sample_weight_masks()
@@ -62,15 +72,39 @@ class StressedNet:
                       use_multiprocessing=False,
                       shuffle=True,
                       initial_epoch=0):
+        run_log = []
         for num_generation in range(generations):
+            self._logger.info("*" * 50)
+            self._logger.info("Starting Generation {}/{}".format(generations, num_generation))
+            self._logger.info("*" * 50)
             offsprings = []
-            for _ in range(num_offsprings):
+            for num_offspring in range(num_offsprings):
+                self._logger.info("Training offspring {}/{}".format(num_offsprings, num_offspring))
                 model = self.sample_new_model()
-                model.fit_generator(generator=generator,
-                                    steps_per_epoch=steps_per_epoch,
-                                    epochs=epochs,
-                                    verbose=verbose,
-                                    callbacks=callbacks)
+                model.compile(optimizer="sgd", loss=self._model_losses)
+                history = model.fit_generator(
+                    generator=generator,
+                    steps_per_epoch=steps_per_epoch,
+                    epochs=epochs,
+                    verbose=verbose,
+                    callbacks=callbacks,
+                    validation_data=validation_data,
+                    validation_steps=validation_steps,
+                    class_weight=class_weight,
+                    max_queue_size=max_queue_size,
+                    workers=workers,
+                    use_multiprocessing=use_multiprocessing,
+                    shuffle=shuffle,
+                    initial_epoch=initial_epoch)
+                offsprings.append(
+                    self.Offspring(file_path=os.path.join(self.save_folder, model.name) + ".h5",
+                                   history=history)
+                )
+                model.save(offsprings[-1].file_path)
                 self._offspring_counter += 1
+                run_log.append(offsprings)
             self._generation_counter += 1
             self._offspring_counter = 1
+        self._logger.info("*"*50)
+        print("Finished run!")
+        return run_log

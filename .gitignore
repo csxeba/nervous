@@ -62,3 +62,7 @@ target/
 
 # PyCharm
 .idea/
+
+*.h5
+*.keras
+*.model

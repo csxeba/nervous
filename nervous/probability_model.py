@@ -44,7 +44,8 @@ class SynapticProbabilityModel:
         self.synaptic_normalizing_term = synaptic_normalizing_term
         self.group_normalizing_term = group_normalizing_term
         self.environmental_constraint = synaptic_environmental_constraint * group_environmental_constraint
-        self.synaptic_probabilities = OrderedDict({layer.name: None for layer in layers})
+        self.synaptic_probabilities = OrderedDict({layer.name: None for layer in layers if layer.__class__.__name__ in
+                                                   ["Dense", "Conv2D"]})
         self.update_probabilities(layers)
 
     def update_probabilities(self, layers):
