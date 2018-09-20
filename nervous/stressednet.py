@@ -4,7 +4,7 @@ import json
 from collections import namedtuple, OrderedDict
 
 import numpy as np
-from keras.models import model_from_json, Model
+from keras.models import model_from_json, Model, load_model
 from keras.optimizers import SGD
 
 from .probability_model import SynapticProbabilityModel, _layer_unit_name
@@ -43,6 +43,7 @@ class StressedNet:
 
     def sample_new_model(self):
         pruning_masks = self.probability_model.sample_weight_masks()
+        print("Total prunes:", sum(prune.size - prune.sum() for prune in pruning_masks.values()))
         pruning_masks_child = {name: None for name in self._layers_of_interest}
         for layer_name in self._layers_of_interest:
             layer_cfg = self._all_layer_configs[layer_name]
@@ -53,7 +54,7 @@ class StressedNet:
             layer_cfg["config"][_layer_unit_name[layer_type]] -= len(pruned_filters)
             self._all_layer_configs[layer_name] = copy.copy(layer_cfg)
         new_model_config = copy.copy(self.ancestor_config_template)
-        new_model_config["config"]["name"] += "_stressed_gen_{}_offspring_{}".format(
+        new_model_config["config"]["name"] = self._model_name_template + "_stressed_gen_{}_offspring_{}".format(
             self._generation_counter, self._offspring_counter)
         new_model_config["config"]["layers"] = [cfg for cfg in self._all_layer_configs.values()]
         json_config = json.dumps(new_model_config)
@@ -114,6 +115,12 @@ class StressedNet:
                 model.save(offsprings[-1].file_path)
                 self._offspring_counter += 1
                 run_log.append(offsprings)
+            offsprings.sort(key=lambda offs: offs.history.history["loss"][-1])
+            champion = load_model(offsprings[0].file_path)
+            self.probability_model.update_probabilities(
+                [layer for layer in champion.layers if layer.name in self._layers_of_interest]
+            )
+            del champion
             self._generation_counter += 1
             self._offspring_counter = 1
         self._logger.info("*"*50)
