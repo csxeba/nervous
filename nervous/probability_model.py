@@ -12,7 +12,7 @@ _layer_unit_name = {"Dense": "units", "Conv2D": "filters"}
 def calculate_synaptic_probabilities(kernel, norm, group_probabilities):
     synaptic_probs = np.exp(np.abs(kernel)/norm - 1.)
     if kernel.ndim == 2:
-        synaptic_probs *= group_probabilities[None, :]
+        synaptic_probs *= group_probabilities[:, None]
     elif kernel.ndim == 4:
         synaptic_probs *= group_probabilities[None, None, None, :]
     return synaptic_probs
@@ -46,7 +46,7 @@ class SynapticProbabilityModel:
         self.environmental_constraint = synaptic_environmental_constraint * group_environmental_constraint
         self.synaptic_probabilities = OrderedDict({layer.name: None for layer in layers if layer.__class__.__name__ in
                                                    ["Dense", "Conv2D"]})
-        self.update_probabilities(layers)
+        self.update_probabilities([layer for layer in layers if layer.__class__.__name__ in ["Dense", "Conv2D"]])
 
     def update_probabilities(self, layers):
         error = RuntimeError("This model is not for the layers you passed to it!")
@@ -54,9 +54,10 @@ class SynapticProbabilityModel:
         if len(layer_names) != len(layers):
             raise error
         for i, layer in enumerate(layers, start=1):
-            group_probs = calculate_group_probabilities(layer.kernel, self.group_normalizing_term,
-                                                        layer.bias if layer.use_bias else None)
-            synaptic_probs = calculate_synaptic_probabilities(layer.kernel, self.synaptic_normalizing_term,
+            parameters = layer.get_weights()
+            group_probs = calculate_group_probabilities(parameters[0], self.group_normalizing_term,
+                                                        parameters[1] if layer.use_bias else None)
+            synaptic_probs = calculate_synaptic_probabilities(parameters[0], self.synaptic_normalizing_term,
                                                               group_probs)
             self.synaptic_probabilities[layer.name] = synaptic_probs * self.environmental_constraint
             try:
