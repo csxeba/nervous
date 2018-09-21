@@ -45,6 +45,7 @@ def main():
                                                    group_normalizing_term=0.1,
                                                    synaptic_environmental_constraint=0.8,
                                                    group_environmental_constraint=0.8,
+                                                   stress_factor=0.8,
                                                    save_folder="/data/models/stressednet/"))
     stressed.fit_generator(dataset.get_iterator(batch_size=32), generations=3, num_offsprings=1,
                            steps_per_epoch=10, epochs=2, verbose=2, validation_data=dataset.testing)

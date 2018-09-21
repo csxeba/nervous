@@ -8,18 +8,15 @@ from keras.models import model_from_json, Model, load_model
 from keras.optimizers import SGD
 
 from .probability_model import SynapticProbabilityModel, _layer_unit_name
-from .logger import NervousLogger
+from .utility.logger import NervousLogger
+from .utility.config import StressedNetConfig
 
 
 class StressedNet:
 
-    Config = namedtuple("Config", ["synaptic_normalizing_term", "group_normalizing_term",
-                                   "synaptic_environmental_constraint",
-                                   "group_environmental_constraint",
-                                   "save_folder"])
     Offspring = namedtuple("Offspring", ["file_path", "history"])
 
-    def __init__(self, model: Model, stressed_net_config: Config):
+    def __init__(self, model: Model, stressed_net_config: StressedNetConfig):
         if not model._built:
             raise RuntimeError("Please build model before wrapping with StressedNet")
         self.ancestor_config_template = json.loads(model.to_json())
@@ -37,9 +34,11 @@ class StressedNet:
                 self._layers_of_interest.append(layer_cfg["name"])
         self.probability_model = SynapticProbabilityModel(model.layers, *stressed_net_config[:4])
         self.save_folder = stressed_net_config.save_folder
+        self.stress_factor = stressed_net_config.stress_factor
         self._generation_counter = 1
         self._offspring_counter = 1
         self._logger = NervousLogger()
+        self.cfg = stressed_net_config
 
     def sample_new_model(self):
         pruning_masks = self.probability_model.sample_weight_masks()
@@ -64,6 +63,8 @@ class StressedNet:
                 continue
             weights = layer.get_weights()
             weights[0] *= pruning_masks_child[layer.name]
+            for W in weights:
+                W *= self.stress_factor
             layer.set_weights(weights)
         return new_model
 
