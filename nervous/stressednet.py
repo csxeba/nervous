@@ -15,13 +15,16 @@ from .utility.config import StressedNetConfig
 class StressedNet:
 
     Offspring = namedtuple("Offspring", ["file_path", "history"])
+    _accepted_layer_types = {"Conv2D", "Dense"}
 
     def __init__(self, model: Model, stressed_net_config: StressedNetConfig):
+        self.cfg = stressed_net_config
         if not model._built:
             raise RuntimeError("Please build model before wrapping with StressedNet")
         self.ancestor_config_template = json.loads(model.to_json())
         model_from_json(json.dumps(self.ancestor_config_template))
         self._model_inputs = model.inputs
+        self._model_output_names = {output[0] for output in self.ancestor_config_template["config"]["output_layers"]}
         self._model_losses = model.loss_functions
         self._model_metrics = model.metrics
         self._model_optimizer = model.optimizer if type(model.optimizer) == SGD else SGD()
@@ -29,20 +32,26 @@ class StressedNet:
         self._all_layer_configs = OrderedDict()
         self._layers_of_interest = []
         for layer_cfg in self.ancestor_config_template["config"]["layers"]:
+            ltype = layer_cfg["class_name"]
+            lname = layer_cfg["name"]
             self._all_layer_configs[layer_cfg["name"]] = layer_cfg.copy()
-            if layer_cfg["class_name"] in ("Dense", "Conv2D"):
+            if ltype in self._accepted_layer_types and lname not in self._model_output_names:
                 self._layers_of_interest.append(layer_cfg["name"])
-        self.probability_model = SynapticProbabilityModel(model.layers, *stressed_net_config[:4])
+        self.probability_model = SynapticProbabilityModel(self._get_filtered_layers(model.layers),
+                                                          self.cfg.synaptic_environmental_constraint,
+                                                          self.cfg.group_environmental_constraint)
         self.save_folder = stressed_net_config.save_folder
         self.stress_factor = stressed_net_config.stress_factor
         self._generation_counter = 1
         self._offspring_counter = 1
         self._logger = NervousLogger()
-        self.cfg = stressed_net_config
+
+    def _get_filtered_layers(self, layers):
+        return [layer for layer in layers if layer.name in self._layers_of_interest]
 
     def sample_new_model(self):
         pruning_masks = self.probability_model.sample_weight_masks()
-        print("Total prunes:", sum(prune.size - prune.sum() for prune in pruning_masks.values()))
+        self._logger.info("Total prunes:", sum(prune.size - prune.sum() for prune in pruning_masks.values()))
         pruning_masks_child = {name: None for name in self._layers_of_interest}
         for layer_name in self._layers_of_interest:
             layer_cfg = self._all_layer_configs[layer_name]
@@ -50,6 +59,8 @@ class StressedNet:
             prune = pruning_masks[layer_name]
             pruned_filters = [filter_no for filter_no in range(prune.shape[-1]) if prune[..., filter_no].sum() == 0]
             pruning_masks_child[layer_name] = np.delete(prune, pruned_filters, axis=-1)
+            if not pruned_filters:
+                self._logger.warning("No pruned units!")
             layer_cfg["config"][_layer_unit_name[layer_type]] -= len(pruned_filters)
             self._all_layer_configs[layer_name] = copy.copy(layer_cfg)
         new_model_config = copy.copy(self.ancestor_config_template)
@@ -62,7 +73,8 @@ class StressedNet:
             if layer.name not in pruning_masks_child:
                 continue
             weights = layer.get_weights()
-            weights[0] *= pruning_masks_child[layer.name]
+            prune = pruning_masks_child[layer.name]
+            weights[0] *= prune
             for W in weights:
                 W *= self.stress_factor
             layer.set_weights(weights)
@@ -118,12 +130,10 @@ class StressedNet:
                 run_log.append(offsprings)
             offsprings.sort(key=lambda offs: offs.history.history["loss"][-1])
             champion = load_model(offsprings[0].file_path)
-            self.probability_model.update_probabilities(
-                [layer for layer in champion.layers if layer.name in self._layers_of_interest]
-            )
+            self.probability_model.update_probabilities(self._get_filtered_layers(champion.layers))
             del champion
             self._generation_counter += 1
             self._offspring_counter = 1
         self._logger.info("*"*50)
-        print("Finished run!")
+        self._logger.info("Finished run!")
         return run_log

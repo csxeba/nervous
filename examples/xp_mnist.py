@@ -5,6 +5,7 @@ from keras.datasets import mnist
 from keras.utils import to_categorical, normalize
 
 from nervous import StressedNet
+from nervous.utility.config import StressedNetConfig
 
 
 class Data:
@@ -27,7 +28,9 @@ class Data:
 def build_small_mlp(input_shape, output_shape):
     inputs = Input(input_shape)
     x = Flatten()(inputs)
-    x = Dense(512, activation="tanh")(x)
+    x = Dense(512, activation="relu")(x)
+    x = BatchNormalization()(x)
+    x = Dense(256, activation="relu")(x)
     x = BatchNormalization()(x)
     x = Dense(output_shape[0], activation="softmax")(x)
     ann = Model(inputs, x)
@@ -39,16 +42,14 @@ def main():
     dataset = Data()
     ann = build_small_mlp(dataset.X.shape[1:], output_shape=dataset.Y.shape[1:])
     print("Pretraining MLP")
-    ann.fit_generator(dataset.get_iterator(batch_size=32), steps_per_epoch=10, epochs=2, verbose=2,
+    ann.fit_generator(dataset.get_iterator(batch_size=32), steps_per_epoch=10, epochs=3, verbose=2,
                       validation_data=dataset.testing)
-    stressed = StressedNet(ann, StressedNet.Config(synaptic_normalizing_term=0.1,
-                                                   group_normalizing_term=0.1,
-                                                   synaptic_environmental_constraint=0.8,
-                                                   group_environmental_constraint=0.8,
-                                                   stress_factor=0.8,
-                                                   save_folder="/data/models/stressednet/"))
+    stressed = StressedNet(ann, StressedNetConfig(synaptic_environmental_constraint=0.8,
+                                                  group_environmental_constraint=0.8,
+                                                  stress_factor=0.8,
+                                                  save_folder="/data/models/stressednet/"))
     stressed.fit_generator(dataset.get_iterator(batch_size=32), generations=3, num_offsprings=1,
-                           steps_per_epoch=10, epochs=2, verbose=2, validation_data=dataset.testing)
+                           steps_per_epoch=10, epochs=3, verbose=2, validation_data=dataset.testing)
 
 
 if __name__ == '__main__':

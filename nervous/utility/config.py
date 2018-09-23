@@ -4,14 +4,10 @@ import os
 class StressedNetConfig:
 
     def __init__(self,
-                 synaptic_normalizing_term=1.,
-                 group_normalizing_term=1.,
                  synaptic_environmental_constraint=0.8,
                  group_environmental_constraint=0.6,
                  stress_factor=0.8,
                  save_folder=os.path.expanduser("~/.nervous/models/")):
-        self._synaptic_normalizing_term = synaptic_normalizing_term
-        self._group_normalizing_term = group_normalizing_term
         self._synaptic_environmental_constraint = synaptic_environmental_constraint
         self._group_environmental_constraint = group_environmental_constraint
         self._stress_factor = stress_factor
@@ -27,24 +23,6 @@ class StressedNetConfig:
             raise ValueError("Stress factor has to be in the range [0. - 1.)")
         if not os.path.exists(self._save_folder):
             os.makedirs(self._save_folder)
-
-    @property
-    def synaptic_normalizing_term(self):
-        return self._synaptic_normalizing_term
-    
-    @synaptic_normalizing_term.setter
-    def synaptic_normalizing_term(self, value):
-        self._synaptic_normalizing_term = value
-        self._sanitize()
-
-    @property
-    def group_normalizing_term(self):
-        return self._group_normalizing_term
-
-    @group_normalizing_term.setter
-    def group_normalizing_term(self, value):
-        self._group_normalizing_term = value
-        self._sanitize()
 
     @property
     def synaptic_environmental_constraint(self):
@@ -81,3 +59,8 @@ class StressedNetConfig:
     def save_folder(self, value):
         self._save_folder = value
         self._sanitize()
+
+    def __getitem__(self, item):
+        if item == "self":
+            raise ValueError("Hahaha")
+        return self.__dict__[item]
