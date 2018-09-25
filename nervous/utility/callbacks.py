@@ -1,5 +1,8 @@
+import numpy as np
+
 from keras.callbacks import Callback
-from nervous.probability_model import SynapticProbabilityModel
+
+from ..probability_model import SynapticProbabilityModel
 
 
 class StressedCallback(Callback):
@@ -14,3 +17,5 @@ class StressedCallback(Callback):
         for layer in self.model.layers:
             if layer.__class__.__name__ not in ("Dense", "Conv2D"):
                 pass
+            weights = layer.get_weights()
+            stress_mask = np.random.uniform(size=)

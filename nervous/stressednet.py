@@ -49,6 +49,14 @@ class StressedNet:
     def _get_filtered_layers(self, layers):
         return [layer for layer in layers if layer.name in self._layers_of_interest]
 
+    def _get_new_model_config(self):
+        new_model_config = copy.copy(self.ancestor_config_template)
+        new_model_config["config"]["name"] = self._model_name_template + "_stressed_gen_{}_offspring_{}".format(
+            self._generation_counter, self._offspring_counter)
+        new_model_config["config"]["layers"] = [cfg for cfg in self._all_layer_configs.values()]
+        json_config = json.dumps(new_model_config)
+        return json_config
+
     def sample_new_model(self):
         pruning_masks = self.probability_model.sample_weight_masks()
         self._logger.info("Total prunes:", sum(prune.size - prune.sum() for prune in pruning_masks.values()))
@@ -63,22 +71,8 @@ class StressedNet:
                 self._logger.warning("No pruned units!")
             layer_cfg["config"][_layer_unit_name[layer_type]] -= len(pruned_filters)
             self._all_layer_configs[layer_name] = copy.copy(layer_cfg)
-        new_model_config = copy.copy(self.ancestor_config_template)
-        new_model_config["config"]["name"] = self._model_name_template + "_stressed_gen_{}_offspring_{}".format(
-            self._generation_counter, self._offspring_counter)
-        new_model_config["config"]["layers"] = [cfg for cfg in self._all_layer_configs.values()]
-        json_config = json.dumps(new_model_config)
-        new_model = model_from_json(json_config)  # type: Model
-        for layer in new_model.layers:
-            if layer.name not in pruning_masks_child:
-                continue
-            weights = layer.get_weights()
-            prune = pruning_masks_child[layer.name]
-            weights[0] *= prune
-            for W in weights:
-                W *= self.stress_factor
-            layer.set_weights(weights)
-        return new_model
+        json_config = self._get_new_model_config()
+        return model_from_json(json_config)
 
     def fit_generator(self,
                       generator,
