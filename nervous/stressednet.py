@@ -10,6 +10,7 @@ from keras.optimizers import SGD
 from .probability_model import SynapticProbabilityModel, _layer_unit_name
 from .utility.logger import NervousLogger
 from .utility.config import StressedNetConfig
+from .utility.callbacks import StressedCallback
 
 
 class StressedNet:
@@ -23,12 +24,14 @@ class StressedNet:
             raise RuntimeError("Please build model before wrapping with StressedNet")
         self.ancestor_config_template = json.loads(model.to_json())
         model_from_json(json.dumps(self.ancestor_config_template))
+
         self._model_inputs = model.inputs
         self._model_output_names = {output[0] for output in self.ancestor_config_template["config"]["output_layers"]}
         self._model_losses = model.loss_functions
         self._model_metrics = model.metrics
         self._model_optimizer = model.optimizer if type(model.optimizer) == SGD else SGD()
         self._model_name_template = copy.copy(model.name)
+
         self._all_layer_configs = OrderedDict()
         self._layers_of_interest = []
         for layer_cfg in self.ancestor_config_template["config"]["layers"]:
@@ -37,6 +40,7 @@ class StressedNet:
             self._all_layer_configs[layer_cfg["name"]] = layer_cfg.copy()
             if ltype in self._accepted_layer_types and lname not in self._model_output_names:
                 self._layers_of_interest.append(layer_cfg["name"])
+
         self.probability_model = SynapticProbabilityModel(self._get_filtered_layers(model.layers),
                                                           self.cfg.synaptic_environmental_constraint,
                                                           self.cfg.group_environmental_constraint)
@@ -58,16 +62,14 @@ class StressedNet:
         return json_config
 
     def sample_new_model(self):
-        pruning_masks = self.probability_model.sample_weight_masks()
+        pruning_masks = self.probability_model.sample_unit_masks(negate=False)
         self._logger.info("Total prunes:", sum(prune.size - prune.sum() for prune in pruning_masks.values()))
-        pruning_masks_child = {name: None for name in self._layers_of_interest}
         for layer_name in self._layers_of_interest:
             layer_cfg = self._all_layer_configs[layer_name]
             layer_type = layer_cfg["class_name"]
             prune = pruning_masks[layer_name]
-            pruned_filters = [filter_no for filter_no in range(prune.shape[-1]) if prune[..., filter_no].sum() == 0]
-            pruning_masks_child[layer_name] = np.delete(prune, pruned_filters, axis=-1)
-            if not pruned_filters:
+            pruned_filters = np.where(prune)[0]
+            if len(pruned_filters) == 0:
                 self._logger.warning("No pruned units!")
             layer_cfg["config"][_layer_unit_name[layer_type]] -= len(pruned_filters)
             self._all_layer_configs[layer_name] = copy.copy(layer_cfg)
@@ -91,6 +93,7 @@ class StressedNet:
                       shuffle=True,
                       initial_epoch=0):
         run_log = []
+        callbacks = callbacks or []
         for num_generation in range(generations):
             self._logger.info("*" * 50)
             self._logger.info("Starting Generation {}/{}".format(generations, num_generation+1))
@@ -101,12 +104,14 @@ class StressedNet:
                 model = self.sample_new_model()
                 model.compile(optimizer=self._model_optimizer, loss=self._model_losses, metrics=self._model_metrics)
                 model.summary()
+                self.probability_model.update_probabilities(self._get_filtered_layers(model.layers))
                 history = model.fit_generator(
                     generator=generator,
                     steps_per_epoch=steps_per_epoch,
                     epochs=epochs,
                     verbose=verbose,
-                    callbacks=callbacks,
+                    callbacks=[StressedCallback(
+                        self.cfg.stress_factor, self.probability_model, self._layers_of_interest)] + callbacks,
                     validation_data=validation_data,
                     validation_steps=validation_steps,
                     class_weight=class_weight,
